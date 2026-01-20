@@ -3,6 +3,8 @@ import cors from 'cors';
 import dotenv from 'dotenv';
 import { initSocket } from './sockets/socket.js';
 import { testRouter } from './routes/testRoute.js';
+import { chatRouter } from './routes/chatRoute.js';
+import { authRouter } from './routes/authRoute.js';
 import { connectDB } from './db/db.js';
 
 dotenv.config();
@@ -19,6 +21,8 @@ app.get('/health', (req, res) => {
 });
 
 app.use('/api/test', testRouter);
+app.use('/api/auth', authRouter);
+app.use('/api/chat', chatRouter);
 
 app.use((req, res) => {
   res.status(404).json({ error: 'Route not found' });

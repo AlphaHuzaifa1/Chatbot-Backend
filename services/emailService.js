@@ -105,76 +105,244 @@ export const formatTicketEmail = (ticket) => {
   // Build email subject
   const subject = `[${referenceId || ticketId}] Support Request - ${category || 'General'}`;
 
-  // Build email body (HTML)
+  // Build email body (HTML) - Professional styled template
   const htmlBody = `
     <!DOCTYPE html>
     <html>
     <head>
       <meta charset="UTF-8">
+      <meta name="viewport" content="width=device-width, initial-scale=1.0">
       <style>
-        body { font-family: Arial, sans-serif; line-height: 1.6; color: #333; }
-        .container { max-width: 600px; margin: 0 auto; padding: 20px; }
-        .header { background-color: #2563eb; color: white; padding: 20px; border-radius: 5px 5px 0 0; }
-        .content { background-color: #f9fafb; padding: 20px; border: 1px solid #e5e7eb; }
-        .section { margin-bottom: 20px; }
-        .section-title { font-weight: bold; color: #1f2937; margin-bottom: 10px; font-size: 16px; }
-        .detail-row { margin-bottom: 8px; }
-        .detail-label { font-weight: bold; color: #4b5563; }
-        .detail-value { color: #1f2937; }
-        .badge { display: inline-block; padding: 4px 12px; border-radius: 12px; font-size: 12px; font-weight: bold; }
-        .badge-urgent { background-color: #dc2626; color: white; }
+        * { margin: 0; padding: 0; box-sizing: border-box; }
+        body { 
+          font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, 'Helvetica Neue', Arial, sans-serif; 
+          line-height: 1.6; 
+          color: #333333; 
+          background-color: #f5f5f5;
+          padding: 20px;
+        }
+        .email-wrapper { 
+          max-width: 700px; 
+          margin: 0 auto; 
+          background-color: #ffffff;
+          border-radius: 8px;
+          overflow: hidden;
+          box-shadow: 0 2px 8px rgba(0,0,0,0.1);
+        }
+        .header { 
+          background: linear-gradient(135deg, #7c3aed 0%, #9333ea 100%);
+          color: #ffffff; 
+          padding: 30px 40px; 
+          text-align: center;
+        }
+        .header h1 { 
+          margin: 0; 
+          font-size: 24px; 
+          font-weight: 700;
+          letter-spacing: 0.5px;
+        }
+        .header .reference-id {
+          margin-top: 8px;
+          font-size: 16px;
+          opacity: 0.95;
+          font-weight: 500;
+        }
+        .content { 
+          padding: 40px; 
+          background-color: #ffffff;
+        }
+        .section { 
+          margin-bottom: 30px; 
+          background-color: #ffffff;
+        }
+        .section:last-child {
+          margin-bottom: 0;
+        }
+        .section-title { 
+          font-weight: 700; 
+          color: #1f2937; 
+          margin-bottom: 20px; 
+          font-size: 18px;
+          padding-bottom: 10px;
+          border-bottom: 2px solid #e5e7eb;
+          text-transform: uppercase;
+          letter-spacing: 0.5px;
+        }
+        .info-table {
+          width: 100%;
+          border-collapse: collapse;
+          margin-bottom: 20px;
+        }
+        .info-table td {
+          padding: 12px 16px;
+          border-bottom: 1px solid #f3f4f6;
+          vertical-align: top;
+        }
+        .info-table tr:last-child td {
+          border-bottom: none;
+        }
+        .info-table .label { 
+          font-weight: 600; 
+          color: #4b5563; 
+          width: 180px;
+          background-color: #f9fafb;
+        }
+        .info-table .value { 
+          color: #1f2937; 
+        }
+        .info-table .value a {
+          color: #7c3aed;
+          text-decoration: none;
+        }
+        .info-table .value a:hover {
+          text-decoration: underline;
+        }
+        .badge { 
+          display: inline-block; 
+          padding: 6px 14px; 
+          border-radius: 20px; 
+          font-size: 13px; 
+          font-weight: 600;
+          text-transform: uppercase;
+          letter-spacing: 0.5px;
+        }
+        .badge-blocked { background-color: #dc2626; color: white; }
         .badge-critical { background-color: #dc2626; color: white; }
         .badge-high { background-color: #ea580c; color: white; }
         .badge-medium { background-color: #f59e0b; color: white; }
         .badge-low { background-color: #10b981; color: white; }
-        .key-details { background-color: white; padding: 15px; border-left: 4px solid #2563eb; margin-top: 10px; }
-        .key-details ul { margin: 10px 0; padding-left: 20px; }
-        .key-details li { margin-bottom: 5px; }
-        .footer { margin-top: 20px; padding-top: 20px; border-top: 1px solid #e5e7eb; font-size: 12px; color: #6b7280; }
+        .summary-box {
+          background-color: #f9fafb;
+          padding: 20px;
+          border-radius: 6px;
+          border-left: 4px solid #7c3aed;
+          margin-top: 10px;
+        }
+        .summary-box p {
+          margin: 0;
+          color: #374151;
+          line-height: 1.7;
+        }
+        .key-details { 
+          background-color: #f9fafb; 
+          padding: 20px; 
+          border-left: 4px solid #7c3aed; 
+          border-radius: 6px;
+          margin-top: 10px; 
+        }
+        .key-details ul { 
+          margin: 0; 
+          padding-left: 20px; 
+          list-style: none;
+        }
+        .key-details li { 
+          margin-bottom: 10px; 
+          padding-left: 20px;
+          position: relative;
+          color: #374151;
+        }
+        .key-details li:before {
+          content: "•";
+          position: absolute;
+          left: 0;
+          color: #7c3aed;
+          font-weight: bold;
+          font-size: 18px;
+        }
+        .key-details li:last-child {
+          margin-bottom: 0;
+        }
+        .details-section {
+          background-color: #f9fafb;
+          padding: 20px;
+          border-radius: 6px;
+          margin-top: 10px;
+        }
+        .details-section p {
+          margin: 8px 0;
+          color: #374151;
+          line-height: 1.7;
+        }
+        .footer { 
+          margin-top: 30px; 
+          padding-top: 25px; 
+          border-top: 2px solid #e5e7eb; 
+          font-size: 13px; 
+          color: #6b7280;
+          text-align: center;
+        }
+        .footer p {
+          margin: 5px 0;
+        }
+        .footer .reference {
+          font-weight: 600;
+          color: #7c3aed;
+        }
+        @media only screen and (max-width: 600px) {
+          .content { padding: 20px; }
+          .header { padding: 20px; }
+          .info-table .label { width: 120px; }
+        }
       </style>
     </head>
     <body>
-      <div class="container">
+      <div class="email-wrapper">
         <div class="header">
-          <h2 style="margin: 0;">Support Ticket - ${referenceId || ticketId}</h2>
+          <h1>Support Ticket</h1>
+          <div class="reference-id">REF-${referenceId || ticketId}</div>
         </div>
         <div class="content">
           <div class="section">
             <div class="section-title">Customer Information</div>
-            <div class="detail-row">
-              <span class="detail-label">Name:</span> <span class="detail-value">${customer.fullName || 'Not provided'}</span>
-            </div>
-            <div class="detail-row">
-              <span class="detail-label">Company:</span> <span class="detail-value">${customer.company || 'Not provided'}</span>
-            </div>
-            <div class="detail-row">
-              <span class="detail-label">Email:</span> <span class="detail-value">${customer.email || 'Not provided'}</span>
-            </div>
-            <div class="detail-row">
-              <span class="detail-label">Phone:</span> <span class="detail-value">${customer.phone || 'Not provided'}</span>
-            </div>
-            <div class="detail-row">
-              <span class="detail-label">VSA Agent/Device:</span> <span class="detail-value">${customer.vsaAgentName || 'Not provided'}</span>
-            </div>
+            <table class="info-table">
+              <tr>
+                <td class="label">Name:</td>
+                <td class="value">${customer.fullName || 'Not provided'}</td>
+              </tr>
+              <tr>
+                <td class="label">Company:</td>
+                <td class="value">${customer.company || 'Not provided'}</td>
+              </tr>
+              <tr>
+                <td class="label">Email:</td>
+                <td class="value"><a href="mailto:${customer.email || ''}">${customer.email || 'Not provided'}</a></td>
+              </tr>
+              <tr>
+                <td class="label">Phone:</td>
+                <td class="value">${customer.phone || 'Not provided'}</td>
+              </tr>
+              <tr>
+                <td class="label">VSA Agent/Device:</td>
+                <td class="value">${customer.vsaAgentName || 'Not provided'}</td>
+              </tr>
+            </table>
           </div>
 
           <div class="section">
             <div class="section-title">Issue Details</div>
-            <div class="detail-row">
-              <span class="detail-label">Category:</span> <span class="detail-value">${category || 'Other'}</span>
-            </div>
-            <div class="detail-row">
-              <span class="detail-label">Urgency:</span> 
-              <span class="badge badge-${urgency === 'critical' ? 'urgent' : (urgency || 'medium')}">${urgencyDisplay}</span>
-            </div>
-            <div class="detail-row">
-              <span class="detail-label">Impact:</span> <span class="detail-value">${impactDisplay}</span>
-            </div>
+            <table class="info-table">
+              <tr>
+                <td class="label">Category:</td>
+                <td class="value">${category ? category.charAt(0).toUpperCase() + category.slice(1) : 'Other'}</td>
+              </tr>
+              <tr>
+                <td class="label">Urgency:</td>
+                <td class="value">
+                  <span class="badge badge-${urgency === 'blocked' || urgency === 'critical' ? 'critical' : (urgency === 'high' ? 'high' : (urgency === 'low' ? 'low' : 'medium'))}">${urgencyDisplay}</span>
+                </td>
+              </tr>
+              <tr>
+                <td class="label">Impact:</td>
+                <td class="value">${impactDisplay}</td>
+              </tr>
+            </table>
           </div>
 
           <div class="section">
             <div class="section-title">Summary</div>
-            <p>${safeSummary || 'No summary provided'}</p>
+            <div class="summary-box">
+              <p>${safeSummary || 'No summary provided'}</p>
+            </div>
           </div>
 
           ${safeKeyDetails.length > 0 ? `
@@ -190,34 +358,26 @@ export const formatTicketEmail = (ticket) => {
 
           <div class="section">
             <div class="section-title">Additional Information</div>
-            <div class="detail-row">
-              <span class="detail-label">Problem Description:</span>
-              <p class="detail-value">${safeDetails.problemDescription || 'Not provided'}</p>
+            <div class="details-section">
+              ${safeDetails.problemDescription ? `
+              <p><strong>Problem Description:</strong><br>${safeDetails.problemDescription}</p>
+              ` : ''}
+              ${safeDetails.errorMessage && safeDetails.errorMessage !== 'No error message provided' ? `
+              <p><strong>Error Message:</strong><br>${safeDetails.errorMessage}</p>
+              ` : ''}
+              ${safeDetails.affectedSystem ? `
+              <p><strong>Affected System:</strong><br>${safeDetails.affectedSystem}</p>
+              ` : ''}
+              ${safeDetails.additionalContext ? `
+              <p><strong>Additional Context:</strong><br>${safeDetails.additionalContext}</p>
+              ` : ''}
             </div>
-            ${safeDetails.errorMessage && safeDetails.errorMessage !== 'No error message provided' ? `
-            <div class="detail-row">
-              <span class="detail-label">Error Message:</span>
-              <p class="detail-value">${safeDetails.errorMessage}</p>
-            </div>
-            ` : ''}
-            ${safeDetails.affectedSystem ? `
-            <div class="detail-row">
-              <span class="detail-label">Affected System:</span>
-              <p class="detail-value">${safeDetails.affectedSystem}</p>
-            </div>
-            ` : ''}
-            ${safeDetails.additionalContext ? `
-            <div class="detail-row">
-              <span class="detail-label">Additional Context:</span>
-              <p class="detail-value">${safeDetails.additionalContext}</p>
-            </div>
-            ` : ''}
           </div>
 
           <div class="footer">
-            <p><strong>Reference ID:</strong> ${referenceId || ticketId}</p>
+            <p><span class="reference">Reference ID:</span> ${referenceId || ticketId}</p>
             <p><strong>Submitted:</strong> ${new Date().toLocaleString()}</p>
-            <p style="margin-top: 15px; color: #9ca3af;">
+            <p style="margin-top: 15px;">
               This is an automated support ticket generated by the Support ChatBot system.
             </p>
           </div>

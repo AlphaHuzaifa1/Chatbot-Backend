@@ -21,9 +21,9 @@ export const startChat = async (req, res) => {
       customerContext = {
         fullName: user.full_name || null,
         email: user.email || null,
-        phone: null,
-        companyName: null,
-        vsaAgentName: null
+        phone: user.phone || null,
+        companyName: user.company || null,
+        vsaAgentName: user.vsa_agent_name || null
       };
     } else {
       if (!ALLOW_GUEST_MODE) {

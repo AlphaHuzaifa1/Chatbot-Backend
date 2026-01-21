@@ -23,7 +23,7 @@ export const verifyToken = (token) => {
 };
 
 export const registerUser = async (userData) => {
-  const { email, password, fullName } = userData;
+  const { email, password, fullName, phone, company, vsaAgentName } = userData;
   
   const existingUser = await getUserByEmail(email);
   if (existingUser) {
@@ -34,7 +34,10 @@ export const registerUser = async (userData) => {
   const user = await createUser({
     email: email.toLowerCase().trim(),
     passwordHash,
-    fullName: fullName || null
+    fullName: fullName || null,
+    phone: phone || null,
+    company: company || null,
+    vsaAgentName: vsaAgentName || null
   });
 
   return user;

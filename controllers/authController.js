@@ -2,7 +2,7 @@ import { registerUser, authenticateUser, generateToken } from '../services/authS
 
 export const signup = async (req, res) => {
   try {
-    const { email, password, fullName } = req.body;
+    const { email, password, fullName, phone, company, vsaAgentName } = req.body;
 
     if (!email || !password) {
       return res.status(400).json({
@@ -18,7 +18,14 @@ export const signup = async (req, res) => {
       });
     }
 
-    const user = await registerUser({ email, password, fullName });
+    const user = await registerUser({ 
+      email, 
+      password, 
+      fullName, 
+      phone, 
+      company, 
+      vsaAgentName 
+    });
 
     const token = generateToken({
       userId: user.id,
@@ -34,6 +41,9 @@ export const signup = async (req, res) => {
         id: user.id,
         fullName: user.full_name,
         email: user.email,
+        phone: user.phone,
+        company: user.company,
+        vsaAgentName: user.vsa_agent_name,
         role: user.role,
         status: user.status
       }

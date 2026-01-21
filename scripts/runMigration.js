@@ -57,6 +57,7 @@ Example:
 
 Available migrations:
   - migration_add_ai_intake_fields.sql (Adds AI intake fields)
+  - migration_add_user_fields.sql (Adds phone, company, vsa_agent_name to users table)
   - migration_fix_sessions_table.sql (Fixes sessions table structure)
 `);
   process.exit(1);

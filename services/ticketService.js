@@ -40,9 +40,9 @@ export const generateTicketPayload = async (sessionId) => {
     customer: {
       fullName: session.user_name || user?.full_name || 'Not provided',
       email: session.email || user?.email || 'Not provided',
-      phone: session.phone || 'Not provided',
-      company: session.company || 'Not provided',
-      vsaAgentName: session.vsa_agent_name || 'Not provided'
+      phone: session.phone || user?.phone || 'Not provided',
+      company: session.company || user?.company || 'Not provided',
+      vsaAgentName: session.vsa_agent_name || user?.vsa_agent_name || 'Not provided'
     },
     
     user: user ? {

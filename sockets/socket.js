@@ -74,20 +74,7 @@ export const initSocket = (server) => {
           });
         }
 
-        // Check if this is the first message and send greeting
-        const isFirstMessage = !sessionState.messages || sessionState.messages.length === 0;
-        if (isFirstMessage) {
-          const greeting = "Hello! I'm here to help you with your IT support request. What's going on?";
-          
-          socket.emit('message_response', {
-            message: greeting,
-            timestamp: new Date().toISOString(),
-            sessionId,
-            type: 'greeting'
-          });
-        }
-
-        // Process message with AI
+        // Process message with AI (AI will handle greeting if needed)
         const response = await processMessage(sessionId, userMessage);
 
         // Handle response

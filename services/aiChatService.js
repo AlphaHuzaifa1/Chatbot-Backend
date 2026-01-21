@@ -189,7 +189,7 @@ const handleFrustration = async (sessionId, sessionState, missingFields) => {
  * Handle greeting intent
  */
 const handleGreeting = async (sessionId) => {
-  const response = "Hello! I'm here to help you create a support ticket. What issue are you experiencing?";
+  const response = "Hello! I'm here to help you with your IT support request. What's going on?";
   await createMessage({
     sessionId,
     messageText: response,

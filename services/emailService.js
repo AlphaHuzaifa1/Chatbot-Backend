@@ -289,7 +289,7 @@ export const formatTicketEmail = (ticket) => {
       <div class="email-wrapper">
         <div class="header">
           <h1>Support Ticket</h1>
-          <div class="reference-id">REF-${referenceId || ticketId}</div>
+          <div class="reference-id">${referenceId || ticketId}</div>
         </div>
         <div class="content">
           <div class="section">

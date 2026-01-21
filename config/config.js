@@ -24,6 +24,16 @@ export const config = {
   app: {
     name: process.env.APP_NAME || 'Support ChatBot',
     version: process.env.APP_VERSION || '1.0.0'
+  },
+  openai: {
+    apiKey: process.env.OPENAI_API_KEY,
+    model: process.env.OPENAI_MODEL || 'gpt-4o-mini'
+  },
+  security: {
+    testMode: process.env.TEST_MODE === 'true',
+    enableLogging: process.env.ENABLE_LOGGING !== 'false',
+    rateLimitWindowMs: parseInt(process.env.RATE_LIMIT_WINDOW_MS) || 60000,
+    rateLimitMaxRequests: parseInt(process.env.RATE_LIMIT_MAX_REQUESTS) || 10
   }
 };
 

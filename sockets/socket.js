@@ -1,9 +1,7 @@
 import { Server } from 'socket.io';
-import { getSessionBySessionId, updateSession } from '../models/sessionModel.js';
-import { createMessage } from '../models/messageModel.js';
-import { processProbingResponse, PROBING_STEPS, INTAKE_STATUS, getInitialQuestion, isIntakeComplete } from '../services/probingIntakeEngine.js';
-import { generateTicketPayload } from '../services/ticketService.js';
-import { submitTicket } from '../services/ticketSubmissionService.js';
+import { getSessionBySessionId } from '../models/sessionModel.js';
+import { processMessage } from '../services/aiChatService.js';
+import { loadSessionState, createSessionState } from '../services/sessionStateService.js';
 
 let io = null;
 
@@ -57,155 +55,89 @@ export const initSocket = (server) => {
         }
 
         const userMessage = message.trim();
-        await createMessage({
-          sessionId,
-          messageText: userMessage,
-          sender: 'user'
-        });
 
-        const session = await getSessionBySessionId(sessionId);
-        if (!session) {
-          socket.emit('error', { message: 'Session not found' });
-          return;
-        }
-
-        let currentStep = session.current_step;
-        let intakeStatus = session.intake_status;
-
-        if (intakeStatus === INTAKE_STATUS.NOT_STARTED || intakeStatus === null || !currentStep) {
-          const initialQuestion = getInitialQuestion();
-          currentStep = PROBING_STEPS.INITIAL_PROBLEM;
-          intakeStatus = INTAKE_STATUS.IN_PROGRESS;
-          
-          await updateSession(sessionId, {
-            intake_status: intakeStatus,
-            current_step: currentStep
-          });
-
-          await createMessage({
-            sessionId,
-            messageText: initialQuestion,
-            sender: 'system'
-          });
-
-          socket.emit('message_response', {
-            message: initialQuestion,
-            timestamp: new Date().toISOString(),
-            sessionId,
-            currentStep: currentStep
-          });
-
-          return;
-        }
-
-        if (intakeStatus === INTAKE_STATUS.IN_PROGRESS && currentStep) {
-          const result = await processProbingResponse(sessionId, currentStep, userMessage, session);
-
-          if (result.warning) {
-            await createMessage({
-              sessionId,
-              messageText: result.message,
-              sender: 'system'
-            });
-
-            socket.emit('message_response', {
-              message: result.message,
-              timestamp: new Date().toISOString(),
-              sessionId,
-              type: 'warning'
-            });
+        // Load or create session state
+        let sessionState = await loadSessionState(sessionId);
+        if (!sessionState) {
+          // Create initial session state from database session
+          const dbSession = await getSessionBySessionId(sessionId);
+          if (!dbSession) {
+            socket.emit('error', { message: 'Session not found' });
             return;
           }
+          sessionState = await createSessionState(sessionId, {
+            fullName: dbSession.user_name,
+            email: dbSession.email,
+            phone: dbSession.phone,
+            company: dbSession.company,
+            vsaAgent: dbSession.vsa_agent_name
+          });
+        }
 
-          if (result.intakeStatus === INTAKE_STATUS.COMPLETE) {
-            const ticketPayload = await generateTicketPayload(sessionId);
-            
-            // Emit ticket_ready event (for backward compatibility)
-            socket.emit('ticket_ready', {
-              ticket: ticketPayload,
-              timestamp: new Date().toISOString()
-            });
-
-            // Automatically submit the ticket
-            try {
-              const session = await getSessionBySessionId(sessionId);
-              const userId = session?.user_id || null;
-              
-              const submissionResult = await submitTicket(ticketPayload, sessionId, userId);
-              
-              // Emit ticket_submitted event with reference ID
-              socket.emit('ticket_submitted', {
-                success: true,
-                referenceId: submissionResult.referenceId,
-                sessionId: sessionId,
-                emailSent: submissionResult.emailSent,
-                testMode: submissionResult.testMode || false,
-                timestamp: new Date().toISOString()
-              });
-
-              await createMessage({
-                sessionId,
-                messageText: 'Thank you! I have all the information I need. Your support ticket has been submitted successfully.',
-                sender: 'system'
-              });
-
-              socket.emit('message_response', {
-                message: 'Thank you! I have all the information I need. Your support ticket has been submitted successfully.',
-                timestamp: new Date().toISOString(),
-                sessionId
-              });
-            } catch (submissionError) {
-              // Handle submission errors gracefully
-              console.error('Error submitting ticket:', submissionError);
-              
-              // Still emit ticket_submitted with error info
-              socket.emit('ticket_submitted', {
-                success: false,
-                error: 'Failed to submit ticket. Please contact support directly.',
-                sessionId: sessionId,
-                timestamp: new Date().toISOString()
-              });
-
-              await createMessage({
-                sessionId,
-                messageText: 'There was an issue submitting your ticket. Please contact support directly with your information.',
-                sender: 'system'
-              });
-
-              socket.emit('message_response', {
-                message: 'There was an issue submitting your ticket. Please contact support directly with your information.',
-                timestamp: new Date().toISOString(),
-                sessionId,
-                type: 'warning'
-              });
-            }
-          } else if (result.question) {
-            await createMessage({
-              sessionId,
-              messageText: result.question,
-              sender: 'system'
-            });
-
-            socket.emit('message_response', {
-              message: result.question,
-              timestamp: new Date().toISOString(),
-              sessionId,
-              currentStep: result.nextStep
-            });
-          }
-        } else if (isIntakeComplete(session)) {
-          await createMessage({
+        // Check if this is the first message and send greeting
+        const isFirstMessage = !sessionState.messages || sessionState.messages.length === 0;
+        if (isFirstMessage) {
+          const greeting = "Hello! I'm here to help you with your IT support request. What's going on?";
+          
+          socket.emit('message_response', {
+            message: greeting,
+            timestamp: new Date().toISOString(),
             sessionId,
-            messageText: 'Your intake is complete. If you need further assistance, please start a new session.',
-            sender: 'system'
+            type: 'greeting'
+          });
+        }
+
+        // Process message with AI
+        const response = await processMessage(sessionId, userMessage);
+
+        // Handle response
+        if (response.sensitive) {
+          socket.emit('message_response', {
+            message: response.message,
+            timestamp: new Date().toISOString(),
+            sessionId,
+            type: 'warning'
+          });
+          return;
+        }
+
+        if (response.submitted) {
+          // Ticket submitted
+          socket.emit('ticket_submitted', {
+            success: true,
+            referenceId: response.referenceId,
+            sessionId: sessionId,
+            emailSent: response.emailSent,
+            testMode: response.testMode || false,
+            timestamp: new Date().toISOString()
           });
 
           socket.emit('message_response', {
-            message: 'Your intake is complete. If you need further assistance, please start a new session.',
+            message: response.message,
             timestamp: new Date().toISOString(),
-            sessionId
+            sessionId,
+            type: 'success'
           });
+          return;
         }
+
+        if (response.error) {
+          socket.emit('error', {
+            message: response.message,
+            error: response.error
+          });
+          return;
+        }
+
+        // Regular response
+        socket.emit('message_response', {
+          message: response.message,
+          timestamp: new Date().toISOString(),
+          sessionId,
+          type: response.type || 'question',
+          readyToSubmit: response.readyToSubmit || false
+        });
+
       } catch (error) {
         console.error('Error handling message:', error);
         socket.emit('error', {

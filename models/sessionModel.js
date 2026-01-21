@@ -97,6 +97,30 @@ export const updateSession = async (sessionId, updates) => {
     fields.push(`category = $${paramIndex++}`);
     values.push(updates.category);
   }
+  if (updates.issue !== undefined) {
+    fields.push(`issue = $${paramIndex++}`);
+    values.push(updates.issue);
+  }
+  if (updates.urgency !== undefined) {
+    fields.push(`urgency = $${paramIndex++}`);
+    values.push(updates.urgency);
+  }
+  if (updates.affected_system !== undefined) {
+    fields.push(`affected_system = $${paramIndex++}`);
+    values.push(updates.affected_system);
+  }
+  if (updates.error_text !== undefined) {
+    fields.push(`error_text = $${paramIndex++}`);
+    values.push(updates.error_text);
+  }
+  if (updates.submitted !== undefined) {
+    fields.push(`submitted = $${paramIndex++}`);
+    values.push(updates.submitted);
+  }
+  if (updates.asked_questions !== undefined) {
+    fields.push(`asked_questions = $${paramIndex++}`);
+    values.push(JSON.stringify(updates.asked_questions));
+  }
 
   if (fields.length === 0) {
     return null;

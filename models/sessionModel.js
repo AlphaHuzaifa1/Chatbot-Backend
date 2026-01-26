@@ -121,6 +121,24 @@ export const updateSession = async (sessionId, updates) => {
     fields.push(`asked_questions = $${paramIndex++}`);
     values.push(JSON.stringify(updates.asked_questions));
   }
+  if (updates.conversation_state !== undefined) {
+    fields.push(`conversation_state = $${paramIndex++}`);
+    values.push(updates.conversation_state);
+  }
+  if (updates.submission_approved !== undefined) {
+    fields.push(`submission_approved = $${paramIndex++}`);
+    values.push(updates.submission_approved);
+  }
+  if (updates.submission_declined !== undefined) {
+    fields.push(`submission_declined = $${paramIndex++}`);
+    values.push(updates.submission_declined);
+  }
+  if (updates.confidence_by_field !== undefined) {
+    fields.push(`confidence_by_field = $${paramIndex++}`);
+    values.push(typeof updates.confidence_by_field === 'string' 
+      ? updates.confidence_by_field 
+      : JSON.stringify(updates.confidence_by_field));
+  }
 
   if (fields.length === 0) {
     return null;

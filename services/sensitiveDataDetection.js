@@ -31,6 +31,46 @@ const SENSITIVE_PATTERNS = [
   }
 ];
 
+/**
+ * Intent-based sensitive data detection patterns
+ * Catches user intent to share sensitive data, not just literal patterns
+ */
+const INTENT_TO_SHARE_PATTERNS = [
+  {
+    pattern: /(i will share|i'll share|can i send|here is my|let me give you|i want to share)/i,
+    type: 'intent_to_share',
+    message: 'I understand you want to share information, but for security reasons, please do not share passwords, PINs, codes, or tokens through this chat. If you need password reset assistance, I can guide you through the proper process.'
+  },
+  {
+    pattern: /(should i send|can i provide|do you need my|would you like my)/i,
+    type: 'intent_to_share',
+    message: 'For security reasons, please do not share passwords, PINs, codes, or tokens through this chat. If you need help with authentication, I can guide you through the proper process.'
+  },
+  {
+    pattern: /(my password is|my pin is|my code is|my token is|my otp is)/i,
+    type: 'intent_to_share',
+    message: 'Please do not share passwords, PINs, codes, or tokens. For security reasons, we cannot accept sensitive credentials through this chat. If you need password reset assistance, I can help guide you through the proper process.'
+  },
+  {
+    // Only match if user is explicitly saying they will share/send/give password
+    // Exclude common phrases like "resetting password", "forgot password", "password reset"
+    // Require explicit action words like "will share", "can send", "want to give"
+    pattern: /(password|pin|code|token|otp|mfa|credentials).*(?:will|can|should|want to|going to|let me|i'll|i will).*(?:share|send|give|provide|tell|show)/i,
+    type: 'intent_to_share',
+    message: 'For security reasons, please do not share passwords, PINs, codes, or tokens through this chat. If you need authentication help, I can guide you through the proper process.'
+  },
+  {
+    // Match explicit sharing statements - user saying they will share credentials
+    pattern: /(?:will|can|should|want to|going to|let me|i'll|i will).*(?:share|send|give|provide|tell|show).*(?:password|pin|code|token|otp|mfa|credentials|account).*(?:with you|to you)/i,
+    type: 'intent_to_share',
+    message: 'For security reasons, please do not share passwords, PINs, codes, or tokens through this chat. If you need authentication help, I can guide you through the proper process.'
+  }
+];
+
+/**
+ * Detect sensitive data - Enhanced with intent-based detection
+ * Now catches both literal sensitive data AND intent to share it
+ */
 export const detectSensitiveData = (text) => {
   if (!text || typeof text !== 'string') {
     return null;
@@ -38,6 +78,21 @@ export const detectSensitiveData = (text) => {
 
   const normalizedText = text.trim();
 
+  // First check for intent to share (proactive prevention)
+  for (const { pattern, type, message } of INTENT_TO_SHARE_PATTERNS) {
+    const match = normalizedText.match(pattern);
+    if (match) {
+      return {
+        detected: true,
+        type,
+        message,
+        matchedText: match[0],
+        isIntentBased: true // Flag to indicate this is intent-based, not literal data
+      };
+    }
+  }
+
+  // Then check for literal sensitive data patterns
   for (const { pattern, type, message } of SENSITIVE_PATTERNS) {
     const match = normalizedText.match(pattern);
     if (match) {
@@ -45,7 +100,8 @@ export const detectSensitiveData = (text) => {
         detected: true,
         type,
         message,
-        matchedText: match[0]
+        matchedText: match[0],
+        isIntentBased: false
       };
     }
   }

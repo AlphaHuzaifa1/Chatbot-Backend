@@ -86,9 +86,10 @@ All fields are required.`
 };
 
 /**
- * Build strict intake system prompt with conversation context and category awareness
+ * Build strict intake system prompt with structured conversation summary
+ * Enhanced to use structured summaries instead of raw message history
  */
-const buildSystemPrompt = (collectedFields, missingFields, askedQuestions, category = null, conversationContext = '') => {
+const buildSystemPrompt = (collectedFields, missingFields, askedQuestions, category = null, conversationSummary = null, conversationMode = null, lastExpectedField = null) => {
   const collectedList = collectedFields.length > 0 
     ? `\n\nFields already collected:\n${collectedFields.map(f => `- ${f}`).join('\n')}`
     : '\n\nNo fields have been collected yet.';
@@ -102,7 +103,23 @@ const buildSystemPrompt = (collectedFields, missingFields, askedQuestions, categ
     : '\n\nNo questions have been asked yet.';
   
   const categoryRules = category ? `\n\n${buildCategoryRules(category)}` : '';
-  const contextSection = conversationContext ? `\n\nConversation context (recent exchanges):\n${conversationContext}` : '';
+  
+  // Use structured summary if available, otherwise fall back to raw context
+  let contextSection = '';
+  if (conversationSummary) {
+    contextSection = `\n\nConversation Summary:
+What we know: ${conversationSummary.knownFacts.join(', ') || 'Nothing yet'}
+What we need: ${conversationSummary.missingFacts.join(', ') || 'Nothing'}
+${conversationSummary.lastBotQuestion ? `Last question: "${conversationSummary.lastBotQuestion}"` : ''}
+${conversationSummary.recentConversation.length > 0 
+  ? `\nRecent conversation:\n${conversationSummary.recentConversation.map((turn, idx) => 
+      `Turn ${idx + 1}:\nUser: ${turn.user}\nBot: ${turn.bot}`
+    ).join('\n\n')}`
+  : ''}`;
+  }
+  
+  const modeContext = conversationMode ? `\n\nCurrent conversation mode: ${conversationMode}` : '';
+  const expectedFieldContext = lastExpectedField ? `\n\nLast question was about: ${lastExpectedField} - prioritize extracting this field if present in user message.` : '';
 
   return `You are an IT support intake assistant.
 
@@ -110,16 +127,18 @@ You are given:
 - The current intake state
 - Fields already collected
 - Fields still missing
-- Conversation context (recent message exchanges)
-${askedList}${categoryRules}${contextSection}
+- Structured conversation summary (what we know, what we need, recent flow)
+${askedList}${categoryRules}${contextSection}${modeContext}${expectedFieldContext}
 
 Rules:
-- NEVER ask about information already collected
+- Extract MULTIPLE fields from a single message when possible (not just one field at a time)
+- NEVER ask about information already collected (check the "What we know" section)
 - NEVER repeat a question (check the asked questions list above)
-- Extract information from the user's message and fill ONLY missing fields
+- Extract information from the user's message and fill ALL missing fields you can identify
 - If a field is already collected, set it to null in extracted (do not overwrite)
-- Use conversation context to understand user intent and avoid asking redundant questions
+- Use conversation summary to understand what user already told us
 - Be conversational and natural, not form-like
+- Extract all relevant fields from the current message, not just one
 
 Current state:${collectedList}${missingList}
 
@@ -200,13 +219,16 @@ const validateAIResponse = (response) => {
 
 /**
  * Process user message with OpenAI (state-driven with conversation context)
+ * Enhanced with conversation mode and last expected field for better context
  * @param {string} userMessage - The user's message
  * @param {Object} sessionState - Current session state with intake, askedQuestions, messages
  * @param {string[]} missingFields - Fields that are still missing
  * @param {string} intent - User intent classification
+ * @param {string} conversationMode - Current conversation mode (INTAKE, CLARIFICATION, etc.)
+ * @param {string} lastExpectedField - Field the bot was asking about
  * @returns {Promise<Object>} AI response with extracted data and suggested question
  */
-export const processUserMessage = async (userMessage, sessionState, missingFields, intent = null) => {
+export const processUserMessage = async (userMessage, sessionState, missingFields, intent = null, conversationMode = null, lastExpectedField = null) => {
   if (!openai) {
     throw new Error('OpenAI API key not configured');
   }
@@ -228,11 +250,36 @@ export const processUserMessage = async (userMessage, sessionState, missingField
   if (intake.affectedSystem) collectedFields.push('affectedSystem');
   if (intake.errorText !== null && intake.errorText !== undefined) collectedFields.push('errorText');
 
-  // Build conversation context (last 3-5 message pairs)
-  const conversationContext = buildConversationContext(messages, 5);
+  // Build structured conversation summary (preferred over raw message history)
+  // Import conversation summary builder from conversationBrainService
+  const conversationBrainModule = await import('./conversationBrainService.js');
+  const buildConversationSummary = conversationBrainModule.buildConversationSummary || conversationBrainModule.default?.buildConversationSummary;
+  
+  if (!buildConversationSummary) {
+    throw new Error('buildConversationSummary not found in conversationBrainService');
+  }
+  
+  // Build a sessionState-like object for the summary builder
+  const conversationSummary = buildConversationSummary({
+    intake,
+    messages,
+    askedQuestions,
+    lastBotQuestion: sessionState.lastBotQuestion || null,
+    lastExpectedField: lastExpectedField || null,
+    conversationMode: conversationMode || 'INTAKE',
+    submissionDeclined: sessionState.submissionDeclined || false
+  });
 
-  // Build system prompt with current state, category rules, and conversation context
-  const systemPrompt = buildSystemPrompt(collectedFields, missingFields, askedQuestions, category, conversationContext);
+  // Build system prompt with structured summary
+  const systemPrompt = buildSystemPrompt(
+    collectedFields, 
+    missingFields, 
+    askedQuestions, 
+    category, 
+    conversationSummary,
+    conversationMode,
+    lastExpectedField
+  );
 
   // Build user message with intent context
   const intentContext = intent ? `\n\nUser intent: ${intent}` : '';

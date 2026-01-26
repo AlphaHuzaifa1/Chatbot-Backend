@@ -5,7 +5,23 @@ import { getMessagesBySessionId } from '../models/messageModel.js';
  * Session State Service
  * Manages in-memory session state following the ChatSession model
  * Falls back to database for persistence
+ * 
+ * Enhanced with conversation tracking for intent-aware flow:
+ * - lastBotQuestion: Last question asked by bot
+ * - lastExpectedField: Field the bot was asking about
+ * - answeredFields: Array of fields that have been answered
+ * - confidenceByField: Confidence scores for extracted fields
+ * - conversationMode: Current conversation state (INTAKE, CLARIFICATION, OFF_TOPIC, SECURITY_WARNING, CONFIRMATION)
  */
+
+// Conversation modes for state tracking
+export const CONVERSATION_MODE = {
+  INTAKE: 'INTAKE',              // Normal information collection
+  CLARIFICATION: 'CLARIFICATION', // Bot clarifying or user asking for clarification
+  OFF_TOPIC: 'OFF_TOPIC',        // User went off-topic, redirecting
+  SECURITY_WARNING: 'SECURITY_WARNING', // Sensitive data detected, warning shown
+  CONFIRMATION: 'CONFIRMATION'   // Showing summary before submission
+};
 
 // In-memory session store (for production, consider Redis)
 const sessionStore = new Map();
@@ -52,7 +68,7 @@ export const loadSessionState = async (sessionId) => {
   // Load messages for context
   const messages = await getMessagesBySessionId(sessionId);
 
-  // Build session state object
+  // Build session state object with enhanced conversation tracking
   const sessionState = {
     sessionId: dbSession.session_id,
     userContext: {
@@ -81,7 +97,20 @@ export const loadSessionState = async (sessionId) => {
       message: msg.message_text,
       timestamp: msg.created_at
     })),
-    lastIntent: null, // Stored in memory only, not persisted to DB
+    // Enhanced conversation tracking
+    lastIntent: null,
+    lastBotQuestion: null,        // Last question asked by bot (memory only)
+    lastExpectedField: null,      // Field the bot was asking about (memory only)
+    answeredFields: [],           // Fields that have been answered (memory only)
+    confidenceByField: dbSession.confidence_by_field 
+      ? (typeof dbSession.confidence_by_field === 'string' 
+          ? JSON.parse(dbSession.confidence_by_field) 
+          : dbSession.confidence_by_field)
+      : {},        // Confidence scores: { field: 0.0-1.0 } - NOW PERSISTED
+    conversationMode: CONVERSATION_MODE.INTAKE, // Legacy mode (for backward compatibility)
+    conversationState: dbSession.conversation_state || 'INIT',    // NOW PERSISTED - do NOT default to INIT if present
+    submissionDeclined: dbSession.submission_declined || false,    // NOW PERSISTED
+    submissionApproved: dbSession.submission_approved || false,    // NOW PERSISTED
     expiresAt: Date.now() + SESSION_TIMEOUT_MS
   };
 
@@ -146,6 +175,43 @@ export const updateSessionState = async (sessionId, updates) => {
     sessionState.lastIntent = updates.lastIntent;
   }
 
+  // Enhanced conversation tracking updates
+  if (updates.lastBotQuestion !== undefined) {
+    sessionState.lastBotQuestion = updates.lastBotQuestion;
+  }
+  if (updates.lastExpectedField !== undefined) {
+    sessionState.lastExpectedField = updates.lastExpectedField;
+  }
+  if (updates.answeredFields !== undefined) {
+    // Merge answered fields, avoiding duplicates
+    if (!sessionState.answeredFields) {
+      sessionState.answeredFields = [];
+    }
+    updates.answeredFields.forEach(field => {
+      if (!sessionState.answeredFields.includes(field)) {
+        sessionState.answeredFields.push(field);
+      }
+    });
+  }
+  if (updates.confidenceByField !== undefined) {
+    sessionState.confidenceByField = {
+      ...sessionState.confidenceByField,
+      ...updates.confidenceByField
+    };
+  }
+  if (updates.conversationMode !== undefined) {
+    sessionState.conversationMode = updates.conversationMode;
+  }
+  if (updates.conversationState !== undefined) {
+    sessionState.conversationState = updates.conversationState;
+  }
+  if (updates.submissionDeclined !== undefined) {
+    sessionState.submissionDeclined = updates.submissionDeclined;
+  }
+  if (updates.submissionApproved !== undefined) {
+    sessionState.submissionApproved = updates.submissionApproved;
+  }
+
   // Update expiration
   sessionState.expiresAt = Date.now() + SESSION_TIMEOUT_MS;
 
@@ -165,6 +231,20 @@ export const updateSessionState = async (sessionId, updates) => {
 
   if (updates.askedQuestions) {
     dbUpdates.asked_questions = JSON.stringify(sessionState.askedQuestions);
+  }
+
+  // Persist critical state variables
+  if (updates.conversationState !== undefined) {
+    dbUpdates.conversation_state = updates.conversationState;
+  }
+  if (updates.submissionApproved !== undefined) {
+    dbUpdates.submission_approved = updates.submissionApproved;
+  }
+  if (updates.submissionDeclined !== undefined) {
+    dbUpdates.submission_declined = updates.submissionDeclined;
+  }
+  if (updates.confidenceByField !== undefined) {
+    dbUpdates.confidence_by_field = JSON.stringify(sessionState.confidenceByField);
   }
 
   if (Object.keys(dbUpdates).length > 0) {
@@ -242,7 +322,16 @@ export const createSessionState = async (sessionId, userContext) => {
     isSubmitted: false,
     createdAt: new Date(),
     messages: [],
+    // Enhanced conversation tracking initialized
     lastIntent: null,
+    lastBotQuestion: null,
+    lastExpectedField: null,
+    answeredFields: [],
+    confidenceByField: {},
+    conversationMode: CONVERSATION_MODE.INTAKE,
+    conversationState: 'INIT',
+    submissionDeclined: false,
+    submissionApproved: false,
     expiresAt: Date.now() + SESSION_TIMEOUT_MS
   };
 
@@ -264,6 +353,7 @@ export default {
   canSubmitTicketCategoryAware,
   getMissingFields,
   createSessionState,
-  markSessionSubmitted
+  markSessionSubmitted,
+  CONVERSATION_MODE
 };
 

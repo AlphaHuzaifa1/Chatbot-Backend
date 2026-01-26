@@ -1,6 +1,6 @@
 import { Server } from 'socket.io';
 import { getSessionBySessionId } from '../models/sessionModel.js';
-import { processMessage } from '../services/aiChatService.js';
+import { processMessage } from '../services/conversationChatService.js';
 import { loadSessionState, createSessionState } from '../services/sessionStateService.js';
 
 let io = null;

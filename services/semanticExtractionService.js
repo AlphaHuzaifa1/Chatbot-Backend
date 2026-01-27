@@ -50,7 +50,8 @@ export const extractFields = async (userMessage, context = {}) => {
     currentIntake = {},
     fieldsToExtract = ['problem', 'category', 'urgency', 'affectedSystem', 'errorText'],
     lastBotQuestion = '',
-    conversationSummary = ''
+    conversationSummary = '',
+    lastExpectedField = null
   } = context;
 
   // Build what we already know
@@ -63,11 +64,21 @@ export const extractFields = async (userMessage, context = {}) => {
     knownFields.push(`Error Text: ${currentIntake.errorText}`);
   }
 
+  // Intent-aware extraction: prioritize fields the user is currently answering
+  const expectedFields = lastExpectedField ? [lastExpectedField] : fieldsToExtract;
+  const expectedFieldsList = expectedFields.length > 0 
+    ? `PRIORITY FIELDS TO EXTRACT (user is likely answering these): ${expectedFields.join(', ')}`
+    : '';
+  
   const systemPrompt = `You are a semantic field extractor for a support chatbot. Your job is to extract structured information from user messages using SEMANTIC UNDERSTANDING, not keywords.
 
 ${conversationSummary ? `CONVERSATION CONTEXT:\n${conversationSummary}\n` : ''}
 
 ${lastBotQuestion ? `LAST QUESTION ASKED: "${lastBotQuestion}"\n` : ''}
+
+${lastExpectedField ? `EXPECTED FIELD (user is likely answering this): "${lastExpectedField}"\n` : ''}
+
+${expectedFieldsList ? `${expectedFieldsList}\n` : ''}
 
 WHAT WE ALREADY KNOW:
 ${knownFields.length > 0 ? knownFields.join('\n') : 'Nothing yet'}
@@ -83,11 +94,13 @@ Extract ONLY the fields that are clearly present in the message. Use semantic un
 
 RULES:
 1. Only extract fields that are CLEARLY present in the message
-2. Do NOT overwrite existing fields (only extract missing ones)
-3. Use semantic understanding - "I can't work" = blocked urgency, "Outlook is down" = email category
-4. Set confidence based on how clear the information is (0.0-1.0)
-5. If information is ambiguous, set lower confidence
-6. If user says "no error" or "no error message", set errorText to "no error provided"
+2. PRIORITIZE extracting the expected field(s) if the user is answering a specific question
+3. Do NOT extract fields that are NOT mentioned in the message (set to null)
+4. Use semantic understanding - "I can't work" = blocked urgency, "Outlook is down" = email category
+5. Set confidence based on how clear the information is (0.0-1.0)
+6. If information is ambiguous or inferred, set lower confidence
+7. If user says "no error" or "no error message", set errorText to "no error provided"
+8. If lastExpectedField is set, focus on extracting that field primarily, but still extract other clearly present fields
 
 Respond with JSON:
 {
@@ -103,7 +116,8 @@ Respond with JSON:
 IMPORTANT:
 - Only include fields that are actually in the message
 - Set value to null if field is not present
-- Confidence should reflect how certain you are (high = clear, low = inferred/ambiguous)`;
+- Confidence should reflect how certain you are (high = clear, low = inferred/ambiguous)
+- If lastExpectedField is provided, prioritize extracting that field but don't force it if not present`;
 
   try {
     const completion = await openai.chat.completions.create({

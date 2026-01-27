@@ -190,6 +190,16 @@ Rules:
       decision.nextState = null; // Stay in current state
     }
 
+    // Handle submission confirmation - don't interfere, let backend handle it
+    if (intent === 'confirm_submit') {
+      decision.action = 'ACKNOWLEDGE_ONLY';
+      decision.shouldAcknowledge = true;
+      decision.acknowledgment = "I understand you'd like me to submit the ticket.";
+      decision.shouldAskQuestion = false;
+      decision.fieldsToExtract = null; // Don't extract when confirming submission
+      decision.nextState = null; // Backend will handle state transition
+    }
+
     if (ENABLE_LOGGING) {
       console.log('[Conversation Brain] Decision:', {
         action: decision.action,

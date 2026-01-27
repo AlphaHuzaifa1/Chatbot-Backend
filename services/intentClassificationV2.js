@@ -233,7 +233,16 @@ export const getFallbackIntent = (userMessage, conversationState) => {
     return INTENT.INTERRUPT_WAIT;
   }
   
-  if (normalized === 'yes' || normalized === 'submit' || normalized === 'go ahead') {
+  // Check for submission confirmation patterns
+  const submitPatterns = [
+    /^(yes|yeah|yep|yup|sure|ok|okay|correct|right|that'?s\s+right|exactly|go\s+ahead|submit)/i,
+    /(yes|yeah|yep|yup|sure|ok|okay).*(kindly|please|can\s+you|will\s+you).*(submit|create|open|raise|send).*(ticket|it)/i,
+    /(kindly|please).*(submit|create|open|raise|send).*(ticket|it)/i,
+    /(submit|create|open|raise|send).*(ticket|it).*(please|kindly|now)/i,
+    /^(yes|yeah|yep|yup|sure|ok|okay).*(submit|create|open|raise|send)/i
+  ];
+  
+  if (submitPatterns.some(pattern => pattern.test(normalized))) {
     return INTENT.CONFIRM_SUBMIT;
   }
   

@@ -42,6 +42,23 @@ const isExplicitResume = (userMessage) => {
 };
 
 /**
+ * Check if user message indicates they're still checking/verifying (should stay in WAITING)
+ * These messages should be acknowledged gracefully without requiring explicit resume keywords
+ */
+const isStillChecking = (userMessage) => {
+  const normalized = userMessage.toLowerCase().trim();
+  const checkingPatterns = [
+    /(let me check|checking|i'm checking|i am checking|will check|going to check)/i,
+    /(let me verify|verifying|i'm verifying|will verify|going to verify)/i,
+    /(let me look|looking|i'm looking|will look|going to look)/i,
+    /(let me find|finding|i'm finding|will find|going to find)/i,
+    /(will update|going to update|will share|will send|will provide)/i,
+    /(give me a moment|one moment|just a sec|just a second|hold on)/i
+  ];
+  return checkingPatterns.some(pattern => pattern.test(normalized));
+};
+
+/**
  * Check if user message contains correction phrases
  */
 const isCorrectionPhrase = (userMessage) => {
@@ -245,11 +262,52 @@ export const processMessage = async (sessionId, userMessage) => {
   }
 
   // Security check (before storing message)
-  const sensitiveCheck = detectSensitiveData(userMessage);
-  if (sensitiveCheck.detected) {
+  // Build context for context-aware security detection
+  const lastBotMessage = sessionState.messages && sessionState.messages.length > 0
+    ? sessionState.messages.filter(m => m.sender === 'system').slice(-1)[0]?.message || ''
+    : '';
+  
+  const intakeContext = {
+    errorText: sessionState.intake?.errorText,
+    problem: sessionState.intake?.issue,
+    category: sessionState.intake?.category
+  };
+  
+  const securityContext = {
+    conversationState: sessionState.conversationState || sessionState.conversationMode || CONVERSATION_STATE.INIT,
+    lastBotMessage,
+    intakeContext
+  };
+  
+  const sensitiveCheck = detectSensitiveData(userMessage, securityContext);
+  
+  // Structured logging for security decision
+  if (ENABLE_LOGGING) {
+    console.log('[Unified Chat] Security check result:', JSON.stringify({
+      sessionId,
+      conversationState: securityContext.conversationState,
+      detected: sensitiveCheck.detected,
+      decision: sensitiveCheck.decision || 'UNKNOWN',
+      patternType: sensitiveCheck.patternType || 'N/A',
+      logMetadata: sensitiveCheck.logMetadata || {}
+    }));
+  }
+  
+  // Handle security decision outcomes
+  if (sensitiveCheck.detected && sensitiveCheck.decision === 'BLOCK') {
+    // High-risk detected - block immediately
     await updateSessionState(sessionId, {
       conversationState: CONVERSATION_STATE.BLOCKED_SECURITY
     });
+
+    if (ENABLE_LOGGING) {
+      console.log('[Unified Chat] Security BLOCK triggered:', JSON.stringify({
+        sessionId,
+        previousState: securityContext.conversationState,
+        newState: CONVERSATION_STATE.BLOCKED_SECURITY,
+        patternType: sensitiveCheck.patternType
+      }));
+    }
 
     return {
       message: sensitiveCheck.message + '\n\nPlease acknowledge that you understand and won\'t share sensitive information. Type "I understand" to continue.',
@@ -258,7 +316,38 @@ export const processMessage = async (sessionId, userMessage) => {
       conversationState: CONVERSATION_STATE.BLOCKED_SECURITY,
       requiresAcknowledgment: true
     };
+  } else if (sensitiveCheck.decision === 'SAFE') {
+    // Safe intent-to-share detected (e.g., sharing error messages)
+    // Allow processing to continue - do NOT block
+    if (ENABLE_LOGGING) {
+      console.log('[Unified Chat] Security SAFE decision - allowing processing:', JSON.stringify({
+        sessionId,
+        conversationState: securityContext.conversationState,
+        reason: sensitiveCheck.logMetadata?.reason || 'Safe context detected'
+      }));
+    }
+    // Continue with normal flow below (no early return)
+  } else if (sensitiveCheck.detected && !sensitiveCheck.decision) {
+    // Legacy format or unexpected state - default to blocking for safety
+    if (ENABLE_LOGGING) {
+      console.warn('[Unified Chat] Security check detected but no decision field - defaulting to BLOCK:', JSON.stringify({
+        sessionId,
+        detected: sensitiveCheck.detected,
+        type: sensitiveCheck.type
+      }));
+    }
+    await updateSessionState(sessionId, {
+      conversationState: CONVERSATION_STATE.BLOCKED_SECURITY
+    });
+    return {
+      message: (sensitiveCheck.message || 'For security reasons, please do not share sensitive information.') + '\n\nPlease acknowledge that you understand and won\'t share sensitive information. Type "I understand" to continue.',
+      type: 'warning',
+      sensitive: true,
+      conversationState: CONVERSATION_STATE.BLOCKED_SECURITY,
+      requiresAcknowledgment: true
+    };
   }
+  // If decision === 'PASS' or 'SAFE', continue with normal processing
 
   // Handle security acknowledgment
   if (sessionState.conversationState === CONVERSATION_STATE.BLOCKED_SECURITY) {
@@ -344,8 +433,39 @@ export const processMessage = async (sessionId, userMessage) => {
       sessionState = await loadSessionState(sessionId);
       
       if (ENABLE_LOGGING) {
-        console.log('[Unified Chat] WAITING state: user explicitly resumed, transitioning to INTAKE');
+        console.log('[Unified Chat] WAITING state: user explicitly resumed, transitioning to INTAKE:', JSON.stringify({
+          sessionId,
+          userMessage: userMessage.substring(0, 50)
+        }));
       }
+    } else if (isStillChecking(userMessage)) {
+      // User is still checking/verifying - acknowledge gracefully and stay in WAITING
+      // This provides human-like acknowledgment without requiring exact resume keywords
+      const acknowledgmentResponse = "No problem, take your time. Let me know when you're ready to continue.";
+      await createMessage({
+        sessionId,
+        messageText: userMessage,
+        sender: 'user'
+      });
+      await createMessage({
+        sessionId,
+        messageText: acknowledgmentResponse,
+        sender: 'system'
+      });
+      
+      if (ENABLE_LOGGING) {
+        console.log('[Unified Chat] WAITING state: user still checking, acknowledging:', JSON.stringify({
+          sessionId,
+          userMessage: userMessage.substring(0, 50),
+          response: 'acknowledgment'
+        }));
+      }
+      
+      return {
+        message: acknowledgmentResponse,
+        type: 'waiting',
+        conversationState: CONVERSATION_STATE.WAITING
+      };
     } else {
       // Still waiting - ignore LLM flow_decision, do NOT extract fields, do NOT ask questions
       const waitingResponse = "I'm still waiting. When you're ready to continue, just let me know by saying 'I'm back', 'continue', or 'go ahead'.";
@@ -356,7 +476,10 @@ export const processMessage = async (sessionId, userMessage) => {
       });
       
       if (ENABLE_LOGGING) {
-        console.log('[Unified Chat] WAITING state lock: ignoring message, user must explicitly resume');
+        console.log('[Unified Chat] WAITING state lock: ignoring message, user must explicitly resume:', JSON.stringify({
+          sessionId,
+          userMessage: userMessage.substring(0, 50)
+        }));
       }
       
       return {
@@ -475,11 +598,35 @@ export const processMessage = async (sessionId, userMessage) => {
   // Don't block on just mentioning password-related issues
   if (llmResponse.intent === 'security_risk' && llmResponse.intent_confidence > 0.7) {
     // Double-check with backend detection to avoid false positives
-    const backendCheck = detectSensitiveData(userMessage);
-    if (backendCheck && backendCheck.detected) {
+    // Pass context for context-aware detection
+    const lastBotMessage = sessionState.messages && sessionState.messages.length > 0
+      ? sessionState.messages.filter(m => m.sender === 'system').slice(-1)[0]?.message || ''
+      : '';
+    const intakeContext = {
+      errorText: sessionState.intake?.errorText,
+      problem: sessionState.intake?.issue,
+      category: sessionState.intake?.category
+    };
+    const backendCheck = detectSensitiveData(userMessage, {
+      conversationState: sessionState.conversationState,
+      lastBotMessage,
+      intakeContext
+    });
+    
+    if (backendCheck && backendCheck.detected && backendCheck.decision === 'BLOCK') {
       await updateSessionState(sessionId, {
         conversationState: CONVERSATION_STATE.BLOCKED_SECURITY
       });
+
+      if (ENABLE_LOGGING) {
+        console.log('[Unified Chat] LLM security_risk intent confirmed by backend:', JSON.stringify({
+          sessionId,
+          llmIntent: 'security_risk',
+          llmConfidence: llmResponse.intent_confidence,
+          backendDecision: backendCheck.decision,
+          patternType: backendCheck.patternType
+        }));
+      }
 
       return {
         message: backendCheck.message + '\n\nPlease acknowledge that you understand and won\'t share sensitive information. Type "I understand" to continue.',
@@ -497,6 +644,16 @@ export const processMessage = async (sessionId, userMessage) => {
     await updateSessionState(sessionId, {
       conversationState: CONVERSATION_STATE.BLOCKED_SECURITY
     });
+
+    if (ENABLE_LOGGING) {
+      console.log('[Unified Chat] LLM flow_decision BLOCK triggered:', JSON.stringify({
+        sessionId,
+        flowDecision: 'BLOCK',
+        intentConfidence: llmResponse.intent_confidence,
+        previousState: sessionState.conversationState,
+        newState: CONVERSATION_STATE.BLOCKED_SECURITY
+      }));
+    }
 
     return {
       message: "For security reasons, please do not share passwords, PINs, codes, or tokens through this chat. If you need password reset assistance, I can guide you through the proper process. Please acknowledge that you understand by typing 'I understand'.",
@@ -633,9 +790,20 @@ export const processMessage = async (sessionId, userMessage) => {
     nextState = getNextState(sessionState.conversationState, stateMachineIntent);
   }
 
-  // Log state transition
+  // Log state transition with structured data
   if (ENABLE_LOGGING && nextState !== previousState) {
-    console.log(`[Unified Chat] State transition: ${previousState} -> ${nextState} (intent: ${llmResponse.intent}, flow_decision: ${llmResponse.flow_decision})`);
+    console.log('[Unified Chat] State transition:', JSON.stringify({
+      sessionId,
+      previousState,
+      nextState,
+      intent: llmResponse.intent,
+      intentConfidence: llmResponse.intent_confidence,
+      flowDecision: llmResponse.flow_decision,
+      transitionReason: nextState === CONVERSATION_STATE.READY_TO_SUBMIT ? 'all_fields_collected' :
+                        nextState === CONVERSATION_STATE.WAITING ? 'user_paused' :
+                        nextState === CONVERSATION_STATE.INTAKE ? 'collecting_info' :
+                        'other'
+    }));
   }
 
   // ============================================
@@ -774,14 +942,20 @@ export const processMessage = async (sessionId, userMessage) => {
   }
 
   if (ENABLE_LOGGING) {
-    console.log('[Unified Chat] Response:', {
+    console.log('[Unified Chat] Response generated:', JSON.stringify({
+      sessionId,
       intent: llmResponse.intent,
+      intentConfidence: llmResponse.intent_confidence,
       flowDecision: llmResponse.flow_decision,
       nextState,
       previousState,
       submissionApproved: llmResponse.intent === 'confirm_submit',
-      latency: `${Date.now() - startTime}ms`
-    });
+      responseType: nextState === CONVERSATION_STATE.WAITING ? 'waiting' :
+                    nextState === CONVERSATION_STATE.READY_TO_SUBMIT ? 'confirmation' :
+                    'info',
+      latency: `${Date.now() - startTime}ms`,
+      fieldsUpdated: Object.keys(updatedIntake).filter(k => updatedIntake[k] !== llmSessionState.intakeFields[k]).length
+    }));
   }
 
   return {

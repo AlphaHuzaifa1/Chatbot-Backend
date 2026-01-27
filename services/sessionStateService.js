@@ -68,6 +68,34 @@ export const loadSessionState = async (sessionId) => {
   // Load messages for context
   const messages = await getMessagesBySessionId(sessionId);
 
+  // STEP 6: Helper function to reconstruct lastExpectedField from lastBotQuestion
+  // This allows deterministic reconstruction without DB persistence
+  const reconstructLastExpectedField = (lastBotQuestion) => {
+    if (!lastBotQuestion) return null;
+    
+    const questionLower = lastBotQuestion.toLowerCase();
+    
+    // Match field keywords in question text
+    if (questionLower.includes('urgent') || questionLower.includes('urgency') || questionLower.includes('priority') || questionLower.includes('how urgent')) {
+      return 'urgency';
+    } else if (questionLower.includes('error') && (questionLower.includes('message') || questionLower.includes('text'))) {
+      return 'errorText';
+    } else if (questionLower.includes('system') || questionLower.includes('application') || (questionLower.includes('which') && (questionLower.includes('system') || questionLower.includes('app')))) {
+      return 'affectedSystem';
+    } else if (questionLower.includes('category') || questionLower.includes('type') || questionLower.includes('kind')) {
+      return 'category';
+    } else if (questionLower.includes('issue') || questionLower.includes('problem') || questionLower.includes('describe') || questionLower.includes('what')) {
+      return 'problem';
+    }
+    
+    return null;
+  };
+
+  // Get last bot question from messages
+  const lastBotMessage = messages
+    .filter(msg => msg.sender === 'system')
+    .slice(-1)[0]?.message_text || null;
+
   // Build session state object with enhanced conversation tracking
   const sessionState = {
     sessionId: dbSession.session_id,
@@ -99,8 +127,8 @@ export const loadSessionState = async (sessionId) => {
     })),
     // Enhanced conversation tracking
     lastIntent: null,
-    lastBotQuestion: null,        // Last question asked by bot (memory only)
-    lastExpectedField: null,      // Field the bot was asking about (memory only)
+    lastBotQuestion: lastBotMessage,  // STEP 6: Reconstruct from messages
+    lastExpectedField: reconstructLastExpectedField(lastBotMessage),  // STEP 6: Reconstruct deterministically
     answeredFields: [],           // Fields that have been answered (memory only)
     confidenceByField: dbSession.confidence_by_field 
       ? (typeof dbSession.confidence_by_field === 'string' 

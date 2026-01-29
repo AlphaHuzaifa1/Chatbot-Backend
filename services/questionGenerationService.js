@@ -10,10 +10,15 @@ const QUESTION_TEMPLATES = {
       "Can you describe the password problem you're facing?",
       "What's happening with your password or login?"
     ],
+    passwordContext: [
+      "Is this password for your computer login, email, or another application?",
+      "What is this password for - your desktop login, email account, or a specific application?",
+      "Which password are you having trouble with - computer login, email, or an application?"
+    ],
     urgency: [
-      "How urgent is this? (blocked, high, medium, or low)",
-      "What's the urgency level? (blocked, high, medium, or low)",
-      "How quickly do you need this resolved? (blocked, high, medium, or low)"
+      "How urgent is this? Is it preventing you from working right now?",
+      "Is this blocking your work completely, or do you have a workaround?",
+      "How quickly do you need this resolved - is it urgent?"
     ],
     errorText: [
       "Are you seeing any error messages? If yes, what do they say?",
@@ -31,9 +36,30 @@ const QUESTION_TEMPLATES = {
       "What type of hardware issue is this? (hardware, software, network, email, password, or other)",
       "Which category best describes this? (hardware, software, network, email, password, or other)"
     ],
+    deviceType: [
+      "Is this a laptop or desktop computer?",
+      "What type of device is this - laptop or desktop?",
+      "Are you using a laptop or desktop?"
+    ],
+    powerSymptoms: [
+      "Do you see any lights or error messages when you try to turn it on?",
+      "What happens when you try to power it on - any lights, fan noise, or blank screen?",
+      "When you try to turn it on, do you see lights, hear fan noise, or just a blank screen?"
+    ],
+    impact: [
+      "Is this preventing you from working right now?",
+      "Is this blocking your work completely, or can you still get some things done?",
+      "How is this affecting your ability to work - completely blocked or just slower?"
+    ],
+    scope: [
+      "Is this affecting only you or others as well?",
+      "Are you the only one experiencing this, or are other people affected too?",
+      "Is this just happening to you, or are multiple people having the same issue?"
+    ],
     urgency: [
-      "How urgent is this? (blocked, high, medium, or low)",
-      "What's the urgency level? (blocked, high, medium, or low)"
+      "How urgent is this? Is it preventing you from working right now?",
+      "Is this blocking your work completely, or do you have a workaround?",
+      "What's the urgency level?"
     ],
     affectedSystem: [
       "Which system or device is affected?",
@@ -56,8 +82,9 @@ const QUESTION_TEMPLATES = {
       "Which category best describes this? (hardware, software, network, email, password, or other)"
     ],
     urgency: [
-      "How urgent is this? (blocked, high, medium, or low)",
-      "What's the urgency level? (blocked, high, medium, or low)"
+      "How urgent is this? Is it preventing you from working right now?",
+      "Is this blocking your work completely, or do you have a workaround?",
+      "What's the urgency level?"
     ],
     affectedSystem: [
       "Which application or software is affected?",
@@ -80,8 +107,9 @@ const QUESTION_TEMPLATES = {
       "Which category best describes this? (hardware, software, network, email, password, or other)"
     ],
     urgency: [
-      "How urgent is this? (blocked, high, medium, or low)",
-      "What's the urgency level? (blocked, high, medium, or low)"
+      "How urgent is this? Is it preventing you from working right now?",
+      "Is this blocking your work completely, or do you have a workaround?",
+      "What's the urgency level?"
     ],
     affectedSystem: [
       "Which system or service is affected by the network issue?",
@@ -104,8 +132,9 @@ const QUESTION_TEMPLATES = {
       "Which category best describes this? (hardware, software, network, email, password, or other)"
     ],
     urgency: [
-      "How urgent is this? (blocked, high, medium, or low)",
-      "What's the urgency level? (blocked, high, medium, or low)"
+      "How urgent is this? Is it preventing you from working right now?",
+      "Is this blocking your work completely, or do you have a workaround?",
+      "What's the urgency level?"
     ],
     affectedSystem: [
       "Which email system or client is affected?",
@@ -128,8 +157,9 @@ const QUESTION_TEMPLATES = {
       "Which category best describes this? (hardware, software, network, email, password, or other)"
     ],
     urgency: [
-      "How urgent is this? (blocked, high, medium, or low)",
-      "What's the urgency level? (blocked, high, medium, or low)"
+      "How urgent is this? Is it preventing you from working right now?",
+      "Is this blocking your work completely, or do you have a workaround?",
+      "What's the urgency level?"
     ],
     affectedSystem: [
       "Which system or application is affected?",
@@ -152,8 +182,9 @@ const QUESTION_TEMPLATES = {
       "Which category best describes this? (hardware, software, network, email, password, or other)"
     ],
     urgency: [
-      "How urgent is this? (blocked, high, medium, or low)",
-      "What's the urgency level? (blocked, high, medium, or low)"
+      "How urgent is this? Is it preventing you from working right now?",
+      "Is this blocking your work completely, or do you have a workaround?",
+      "What's the urgency level?"
     ],
     affectedSystem: [
       "Which system or application is affected?",

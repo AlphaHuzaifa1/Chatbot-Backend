@@ -91,6 +91,11 @@ Extract ONLY the fields that are clearly present in the message. Use semantic un
 - urgency: One of: "blocked" (work completely blocked), "high" (urgent but workaround exists), "medium" (moderate impact), "low" (minor inconvenience). Infer from language.
 - affectedSystem: The specific application, system, or service affected (e.g., "Outlook", "Windows", "Network", "Email").
 - errorText: Any error messages mentioned, or "no error provided" if user explicitly says there's no error.
+- passwordContext: (For password category only) One of: "desktop login", "email", "specific application". What password is this for?
+- deviceType: (For hardware category only) One of: "laptop", "desktop". What type of device?
+- powerSymptoms: (For hardware category only) One of: "no lights", "lights on", "fan noise", "screen blank". What happens when powering on?
+- impact: (For hardware category only) One of: "blocked" (completely blocked), "degraded" (can still work but slower/limited). How is work affected?
+- scope: (For hardware category only) One of: "single user", "multiple users". Who is affected?
 
 RULES:
 1. Only extract fields that are CLEARLY present in the message
@@ -109,7 +114,12 @@ Respond with JSON:
     "category": { "value": "string or null", "confidence": 0.0-1.0 },
     "urgency": { "value": "string or null", "confidence": 0.0-1.0 },
     "affectedSystem": { "value": "string or null", "confidence": 0.0-1.0 },
-    "errorText": { "value": "string or null", "confidence": 0.0-1.0 }
+    "errorText": { "value": "string or null", "confidence": 0.0-1.0 },
+    "passwordContext": { "value": "string or null", "confidence": 0.0-1.0 },
+    "deviceType": { "value": "string or null", "confidence": 0.0-1.0 },
+    "powerSymptoms": { "value": "string or null", "confidence": 0.0-1.0 },
+    "impact": { "value": "string or null", "confidence": 0.0-1.0 },
+    "scope": { "value": "string or null", "confidence": 0.0-1.0 }
   }
 }
 
@@ -142,9 +152,14 @@ IMPORTANT:
     const extracted = {};
     const confidence = {};
 
-    const validFields = ['problem', 'category', 'urgency', 'affectedSystem', 'errorText'];
+    const validFields = ['problem', 'category', 'urgency', 'affectedSystem', 'errorText', 'passwordContext', 'deviceType', 'powerSymptoms', 'impact', 'scope'];
     const validCategories = ['password', 'hardware', 'software', 'network', 'email', 'other'];
     const validUrgencies = ['blocked', 'high', 'medium', 'low'];
+    const validPasswordContexts = ['desktop login', 'email', 'specific application'];
+    const validDeviceTypes = ['laptop', 'desktop'];
+    const validPowerSymptoms = ['no lights', 'lights on', 'fan noise', 'screen blank'];
+    const validImpacts = ['blocked', 'degraded'];
+    const validScopes = ['single user', 'multiple users'];
 
     for (const field of validFields) {
       const fieldData = result.extracted?.[field];
@@ -171,6 +186,93 @@ IMPORTANT:
             continue; // Skip invalid urgency
           }
           extracted[field] = urgencyValue;
+        }
+        // Validate passwordContext
+        else if (field === 'passwordContext') {
+          const contextValue = fieldData.value.toLowerCase();
+          // Normalize variations
+          let normalized = contextValue;
+          if (contextValue.includes('desktop') || contextValue.includes('computer') || contextValue.includes('login')) {
+            normalized = 'desktop login';
+          } else if (contextValue.includes('email') || contextValue.includes('mail')) {
+            normalized = 'email';
+          } else if (contextValue.includes('application') || contextValue.includes('app')) {
+            normalized = 'specific application';
+          }
+          if (validPasswordContexts.includes(normalized)) {
+            extracted[field] = normalized;
+          } else {
+            if (ENABLE_LOGGING) {
+              console.warn(`[Semantic Extraction] Invalid passwordContext: ${fieldData.value}`);
+            }
+            continue;
+          }
+        }
+        // Validate deviceType
+        else if (field === 'deviceType') {
+          const deviceValue = fieldData.value.toLowerCase();
+          if (validDeviceTypes.includes(deviceValue)) {
+            extracted[field] = deviceValue;
+          } else {
+            if (ENABLE_LOGGING) {
+              console.warn(`[Semantic Extraction] Invalid deviceType: ${fieldData.value}`);
+            }
+            continue;
+          }
+        }
+        // Validate powerSymptoms
+        else if (field === 'powerSymptoms') {
+          const symptomsValue = fieldData.value.toLowerCase();
+          // Normalize variations
+          let normalized = symptomsValue;
+          if (symptomsValue.includes('no light') || symptomsValue.includes('no power')) {
+            normalized = 'no lights';
+          } else if (symptomsValue.includes('light') && !symptomsValue.includes('no')) {
+            normalized = 'lights on';
+          } else if (symptomsValue.includes('fan')) {
+            normalized = 'fan noise';
+          } else if (symptomsValue.includes('blank') || symptomsValue.includes('black screen')) {
+            normalized = 'screen blank';
+          }
+          if (validPowerSymptoms.includes(normalized)) {
+            extracted[field] = normalized;
+          } else {
+            if (ENABLE_LOGGING) {
+              console.warn(`[Semantic Extraction] Invalid powerSymptoms: ${fieldData.value}`);
+            }
+            continue;
+          }
+        }
+        // Validate impact
+        else if (field === 'impact') {
+          const impactValue = fieldData.value.toLowerCase();
+          if (validImpacts.includes(impactValue)) {
+            extracted[field] = impactValue;
+          } else {
+            if (ENABLE_LOGGING) {
+              console.warn(`[Semantic Extraction] Invalid impact: ${fieldData.value}`);
+            }
+            continue;
+          }
+        }
+        // Validate scope
+        else if (field === 'scope') {
+          const scopeValue = fieldData.value.toLowerCase();
+          // Normalize variations
+          let normalized = scopeValue;
+          if (scopeValue.includes('multiple') || scopeValue.includes('others') || scopeValue.includes('team')) {
+            normalized = 'multiple users';
+          } else if (scopeValue.includes('single') || scopeValue.includes('just me') || scopeValue.includes('only me')) {
+            normalized = 'single user';
+          }
+          if (validScopes.includes(normalized)) {
+            extracted[field] = normalized;
+          } else {
+            if (ENABLE_LOGGING) {
+              console.warn(`[Semantic Extraction] Invalid scope: ${fieldData.value}`);
+            }
+            continue;
+          }
         }
         // Other fields
         else {

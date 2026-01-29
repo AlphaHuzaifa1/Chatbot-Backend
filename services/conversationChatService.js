@@ -39,6 +39,12 @@ import {
   isActionAllowed,
   isActionForbidden
 } from './conversationStateMachineV2.js';
+import {
+  checkCategorySpecificProbes,
+  getNextMandatoryProbe,
+  getMandatoryProbeQuestion,
+  hasFollowedUpInitialIssue
+} from './categorySpecificProbes.js';
 
 const ENABLE_LOGGING = process.env.ENABLE_LOGGING !== 'false';
 const CONFIDENCE_THRESHOLD = parseFloat(process.env.CONFIDENCE_THRESHOLD || '0.7');
@@ -48,6 +54,10 @@ const CONFIDENCE_THRESHOLD = parseFloat(process.env.CONFIDENCE_THRESHOLD || '0.7
  * Based on PM requirements:
  * - Password category: problem, urgency, errorText (affectedSystem optional)
  * - Other categories: problem, category, urgency, affectedSystem, errorText
+ * 
+ * ENHANCED: Now also checks category-specific mandatory probes
+ * - Hardware: at least 2 of (deviceType, powerSymptoms, impact, scope)
+ * - Password: passwordContext required
  */
 const checkFieldConfidence = (intakeFields, confidenceByField, category) => {
   // Normalize field names: check both 'problem' and 'issue' for backward compatibility
@@ -71,6 +81,18 @@ const checkFieldConfidence = (intakeFields, confidenceByField, category) => {
         return { valid: false, lowConfidenceField: field, confidence };
       }
     }
+    
+    // ENHANCEMENT: Check category-specific mandatory probes for password
+    const probeCheck = checkCategorySpecificProbes(category, intakeFields);
+    if (!probeCheck.satisfied) {
+      return {
+        valid: false,
+        missingField: probeCheck.missingProbes[0] || 'passwordContext',
+        categorySpecificProbe: true,
+        probeReason: probeCheck.reason
+      };
+    }
+    
     return { valid: true };
   }
 
@@ -87,6 +109,21 @@ const checkFieldConfidence = (intakeFields, confidenceByField, category) => {
 
     if (confidence < CONFIDENCE_THRESHOLD) {
       return { valid: false, lowConfidenceField: field, confidence };
+    }
+  }
+
+  // ENHANCEMENT: Check category-specific mandatory probes for hardware
+  if (category === 'hardware') {
+    const probeCheck = checkCategorySpecificProbes(category, intakeFields);
+    if (!probeCheck.satisfied) {
+      return {
+        valid: false,
+        missingField: probeCheck.missingProbes[0] || 'hardwareProbe',
+        categorySpecificProbe: true,
+        probeReason: probeCheck.reason,
+        requiredCount: probeCheck.requiredCount,
+        currentCount: probeCheck.currentCount
+      };
     }
   }
 
@@ -127,9 +164,38 @@ const isReadyForSubmission = (sessionState) => {
 
 /**
  * Generate ticket payload
+ * ENHANCED: Includes category-specific probe fields for technician-quality tickets
  */
 const generateTicketPayload = async (sessionState, summaryData) => {
   const { intake, userContext, sessionId } = sessionState;
+
+  // Determine impact: use intake.impact if available (from hardware probes), otherwise derive from urgency
+  const impact = intake.impact || (intake.urgency === 'blocked' ? 'blocked' : 'single_user');
+  
+  // Determine scope: use intake.scope if available (from hardware probes), otherwise default
+  const scope = intake.scope || 'single_user';
+
+  // Build additional context from category-specific probes
+  const additionalContext = [];
+  
+  if (intake.category === 'password' && intake.passwordContext) {
+    additionalContext.push(`Password Context: ${intake.passwordContext}`);
+  }
+  
+  if (intake.category === 'hardware') {
+    if (intake.deviceType) {
+      additionalContext.push(`Device Type: ${intake.deviceType}`);
+    }
+    if (intake.powerSymptoms) {
+      additionalContext.push(`Power Symptoms: ${intake.powerSymptoms}`);
+    }
+    if (intake.impact) {
+      additionalContext.push(`Impact: ${intake.impact}`);
+    }
+    if (intake.scope) {
+      additionalContext.push(`Scope: ${intake.scope}`);
+    }
+  }
 
   return {
     sessionId,
@@ -143,7 +209,8 @@ const generateTicketPayload = async (sessionState, summaryData) => {
     },
     category: intake.category || 'other',
     urgency: intake.urgency || 'medium',
-    impact: intake.urgency === 'blocked' ? 'blocked' : 'single_user',
+    impact: impact,
+    scope: scope,
     summary: summaryData.summary,
     details: {
       problemDescription: intake.problem || 'Not provided',
@@ -152,7 +219,11 @@ const generateTicketPayload = async (sessionState, summaryData) => {
       errorMessage: intake.errorText === 'no error provided' || !intake.errorText
         ? 'No error message provided'
         : (intake.errorText || 'Not provided'),
-      additionalContext: null
+      additionalContext: additionalContext.length > 0 ? additionalContext.join('; ') : null,
+      // Category-specific fields
+      passwordContext: intake.passwordContext || null,
+      deviceType: intake.deviceType || null,
+      powerSymptoms: intake.powerSymptoms || null
     },
     keyDetails: summaryData.keyDetails || [],
     chatTranscript: sessionState.messages || [],
@@ -840,6 +911,28 @@ export const processMessage = async (sessionId, userMessage) => {
         }
         return { shouldUpdate: false, reason: 'Existing urgency preserved' };
 
+      case 'passwordContext':
+      case 'deviceType':
+      case 'powerSymptoms':
+      case 'impact':
+      case 'scope':
+        // Category-specific mandatory probe fields: replace if missing or explicit correction
+        if (isMissing) {
+          return { shouldUpdate: true, newValue, newConf, reason: 'Mandatory probe field missing' };
+        }
+        if (isExplicitCorrection || indicatesCorrection) {
+          return { shouldUpdate: true, newValue, newConf, reason: 'User explicitly corrected mandatory probe field' };
+        }
+        // Don't replace if new confidence is significantly lower (unless explicit correction)
+        if (newConf < currentConf - 0.2 && !indicatesCorrection) {
+          return { shouldUpdate: false, reason: 'New confidence too low compared to existing' };
+        }
+        // For mandatory probes, prefer higher confidence values
+        if (newConf > currentConf + 0.1) {
+          return { shouldUpdate: true, newValue, newConf, reason: 'New value has higher confidence' };
+        }
+        return { shouldUpdate: false, reason: 'Existing mandatory probe field preserved' };
+
       default:
         // Default behavior for unknown fields: only update if missing or explicit correction
         if (isMissing) {
@@ -997,15 +1090,21 @@ export const processMessage = async (sessionId, userMessage) => {
   const category = updatedIntake.category;
   const fieldCheckAfterExtraction = checkFieldConfidence(updatedIntake, updatedConfidence, category);
   
+  // ENHANCEMENT: Check if initial issue has been followed up (at least one probing question)
+  // This prevents premature submission after first user message
+  const hasFollowedUp = hasFollowedUpInitialIssue(sessionState);
+  
   // FIX 4: Enforce deterministic PROBING exit
   // If checkFieldConfidence().valid === true, ALWAYS override brain decision and transition to READY_TO_SUBMIT
   // This ensures no subsequent message can bypass this unless data is explicitly edited
+  // ENHANCEMENT: Also require that initial issue has been followed up
   if (fieldCheckAfterExtraction.valid && 
+      hasFollowedUp &&
       brainDecision.action !== 'REDIRECT_OFF_TOPIC' &&
       brainDecision.action !== 'WAIT' &&
       intent !== INTENT.OFF_TOPIC &&
       intent !== INTENT.ASK_QUESTION) {
-    // We have all required fields - FORCE transition to READY_TO_SUBMIT
+    // We have all required fields AND have followed up - FORCE transition to READY_TO_SUBMIT
     // This is deterministic and cannot be bypassed
     brainDecision.action = 'SHOW_SUMMARY';
     brainDecision.nextState = 'READY_TO_SUBMIT';
@@ -1020,9 +1119,21 @@ export const processMessage = async (sessionId, userMessage) => {
         fields: Object.keys(updatedIntake).filter(k => updatedIntake[k]),
         confidence: updatedConfidence,
         previousState: sessionState.conversationState,
-        reason: 'All required fields valid with sufficient confidence'
+        hasFollowedUp,
+        reason: 'All required fields valid with sufficient confidence and initial issue followed up'
       });
     }
+  } else if (fieldCheckAfterExtraction.valid && !hasFollowedUp) {
+    // Fields are complete but haven't followed up yet - ask at least one more question
+    if (ENABLE_LOGGING) {
+      console.log('[Conversation Chat] Fields complete but no follow-up yet - asking additional question', {
+        sessionId,
+        category,
+        reason: 'Enforcing at least one follow-up question after initial issue description'
+      });
+    }
+    // Don't transition to READY_TO_SUBMIT yet - continue probing
+    brainDecision.shouldAskQuestion = true;
   }
 
   // ============================================
@@ -1358,41 +1469,59 @@ export const processMessage = async (sessionId, userMessage) => {
         }
         parts.push(brainDecision.questionToAsk);
       } else {
-        // Generate probing question - determine field BEFORE generating
-        // STEP 5: Align probing with confidence model
-        // Check both value existence AND confidence scores
-        const missingFieldsByValue = getMissingFields({ intake: updatedIntake });
-        const missingFieldsByConfidence = [];
+        // ENHANCEMENT: Check for category-specific mandatory probes first
+        const mandatoryProbeField = getNextMandatoryProbe(category, updatedIntake);
         
-        // Also check for fields with low confidence (below threshold)
-        // Use the fieldCheck we already computed above
-        if (!fieldCheck.valid && fieldCheck.lowConfidenceField) {
-          // Field exists but has low confidence - treat as missing for probing purposes
-          missingFieldsByConfidence.push(fieldCheck.lowConfidenceField);
-        }
-        
-        // Combine both lists (avoid duplicates)
-        const allMissingFields = [...new Set([...missingFieldsByValue, ...missingFieldsByConfidence])];
-        
-        if (allMissingFields.length > 0) {
-          // STEP 1: Determine which field we're asking about
-          nextExpectedField = getNextField(allMissingFields, category);
+        if (mandatoryProbeField) {
+          // Ask mandatory probe question with technician-style phrasing
+          nextExpectedField = mandatoryProbeField;
+          const probeQuestion = getMandatoryProbeQuestion(mandatoryProbeField, category);
+          parts.push(probeQuestion);
           
-          const question = await generateProbingQuestion(
-            sessionState,
-            allMissingFields,
-            userMessage,
-            brainDecision.acknowledgment
-          );
-          if (question) {
-            parts.push(question);
+          if (ENABLE_LOGGING) {
+            console.log('[Conversation Chat] Asking mandatory category-specific probe:', {
+              category,
+              field: mandatoryProbeField,
+              question: probeQuestion
+            });
+          }
+        } else {
+          // Generate probing question - determine field BEFORE generating
+          // STEP 5: Align probing with confidence model
+          // Check both value existence AND confidence scores
+          const missingFieldsByValue = getMissingFields({ intake: updatedIntake });
+          const missingFieldsByConfidence = [];
+          
+          // Also check for fields with low confidence (below threshold)
+          // Use the fieldCheck we already computed above
+          if (!fieldCheck.valid && fieldCheck.lowConfidenceField) {
+            // Field exists but has low confidence - treat as missing for probing purposes
+            missingFieldsByConfidence.push(fieldCheck.lowConfidenceField);
           }
           
-          if (ENABLE_LOGGING && missingFieldsByConfidence.length > 0) {
-            console.log('[Conversation Chat] Including low-confidence fields in probing:', {
-              lowConfidenceFields: missingFieldsByConfidence,
-              reason: 'Fields exist but confidence below threshold - asking for confirmation'
-            });
+          // Combine both lists (avoid duplicates)
+          const allMissingFields = [...new Set([...missingFieldsByValue, ...missingFieldsByConfidence])];
+          
+          if (allMissingFields.length > 0) {
+            // STEP 1: Determine which field we're asking about
+            nextExpectedField = getNextField(allMissingFields, category);
+            
+            const question = await generateProbingQuestion(
+              sessionState,
+              allMissingFields,
+              userMessage,
+              brainDecision.acknowledgment
+            );
+            if (question) {
+              parts.push(question);
+            }
+            
+            if (ENABLE_LOGGING && missingFieldsByConfidence.length > 0) {
+              console.log('[Conversation Chat] Including low-confidence fields in probing:', {
+                lowConfidenceFields: missingFieldsByConfidence,
+                reason: 'Fields exist but confidence below threshold - asking for confirmation'
+              });
+            }
           }
         }
       }

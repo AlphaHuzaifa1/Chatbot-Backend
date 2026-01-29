@@ -111,7 +111,13 @@ export const loadSessionState = async (sessionId) => {
       category: dbSession.category || null,
       urgency: dbSession.urgency || null,
       affectedSystem: dbSession.affected_system || null,
-      errorText: dbSession.error_text !== undefined ? dbSession.error_text : null
+      errorText: dbSession.error_text !== undefined ? dbSession.error_text : null,
+      // Category-specific mandatory probe fields (new fields, may not exist in DB yet)
+      passwordContext: dbSession.password_context || null,
+      deviceType: dbSession.device_type || null,
+      powerSymptoms: dbSession.power_symptoms || null,
+      impact: dbSession.impact || null,
+      scope: dbSession.scope || null
     },
     askedQuestions: dbSession.asked_questions 
       ? (typeof dbSession.asked_questions === 'string' 
@@ -344,7 +350,13 @@ export const createSessionState = async (sessionId, userContext) => {
       category: null,
       urgency: null,
       affectedSystem: null,
-      errorText: null
+      errorText: null,
+      // Category-specific mandatory probe fields
+      passwordContext: null,      // For password: desktop login | email | specific application
+      deviceType: null,           // For hardware: laptop | desktop
+      powerSymptoms: null,        // For hardware: no lights | lights on | fan noise | screen blank
+      impact: null,               // For hardware: blocked | degraded
+      scope: null                 // For hardware: single user | multiple users
     },
     askedQuestions: [],
     isSubmitted: false,
